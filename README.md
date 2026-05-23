@@ -1,21 +1,24 @@
 # Ralph
 
-Ralph is a global CLI that drains a directory of implementation plans against a target repository.
+Ralph is a command-line runner for doc-plan queues. Point it at a target repository and a folder of `*.plan.md` files, and Ralph will run an implementation agent through the runnable plans one by one.
 
-It is designed for this workflow:
+It is intentionally narrow:
 
-```bash
-ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plans /home/jiyu/Documents/Jiyu-obsidian/demo-aidesk/plan \
-  --provider codex
-```
+- It runs doc-plan files only.
+- It does not generate plans for you.
+- It does not use project-specific harnesses, backlog files, or private conventions.
+- Ralph only edits plan metadata, archives completed plans, and writes a run summary. The agent edits the target repo.
 
-By default Ralph keeps running runnable plans until the queue is empty or `--max-items` is reached. Use `--once` when you want one plan only.
+## Quick Start
 
-## Install
+Requirements:
 
-From this repository:
+- Node.js 20 or newer
+- pnpm
+- A working `codex` CLI on your `PATH`
+- A target repository you want the agent to work on
+
+Install Ralph from this repository:
 
 ```bash
 pnpm install
@@ -23,31 +26,85 @@ pnpm build
 pnpm link --global
 ```
 
-Then check:
+Check that the command is available:
 
 ```bash
 ralph --help
 ```
 
-You can also pack and install it with npm:
+Create or copy a doc-plan queue:
 
 ```bash
-pnpm build
-npm pack
-npm install -g ./ralph-loop-cli-0.1.0.tgz
+mkdir -p ~/plans/my-project
+cp examples/doc-plan/*.plan.md ~/plans/my-project/
 ```
 
-## Plan Queue
+Edit the copied plan files so they describe work for your target repository.
 
-Active plans are direct `*.plan.md` or `*-plan.md` children of the directory passed to `--plans`. Ralph does not recursively scan arbitrary subfolders, and it does not treat files like `README.md` as queue items. The only managed subfolder is:
+Preview the queue without changing files:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --dry-run
+```
+
+Run one plan:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --once
+```
+
+Drain all runnable plans:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project
+```
+
+Ralph writes a summary to:
+
+```text
+<plans>/ralph-summary.md
+```
+
+Completed plans are moved to:
 
 ```text
 <plans>/done/
 ```
 
-Completed plans are archived there. If an archived filename already exists, Ralph appends a timestamp before `.plan.md`.
+## How It Works
 
-Each plan should start with metadata like this:
+Ralph expects a folder of active plan files. Active plans must be direct children of the folder passed to `--plans`.
+
+Supported active filenames:
+
+- `*.plan.md`
+- `*-plan.md`
+
+Ralph does not recursively scan arbitrary subfolders. The only managed subfolder is `done/`, where completed plans are archived.
+
+On each run, Ralph:
+
+1. Reads active plans from `--plans`.
+2. Reads completed plans from `<plans>/done/` for dependency resolution.
+3. Selects the first runnable plan alphabetically, unless `--item` selects a specific one.
+4. Marks the selected plan `in-progress`.
+5. Runs the provider agent from the target repo.
+6. Requires the agent to finish with a `ralph-result:` line.
+7. Marks the plan `done` or `blocked`.
+8. Runs a simplify/review pass unless `--no-simplify` is set.
+9. Archives completed plans and updates the summary.
+
+## Plan File Format
+
+Each plan starts with metadata, followed by a blank line and the plan body:
 
 ```md
 status: planned
@@ -57,13 +114,23 @@ done_at: none
 independent: yes
 dependencies: none
 
-# Feature Plan
+# Add Health Endpoint
+
+## Goal
+
+Add a simple health endpoint to the application.
+
+## Acceptance Criteria
+
+- The app exposes `GET /health`.
+- The endpoint returns a successful status code.
+- Relevant tests or smoke checks pass.
 ```
 
 Supported statuses:
 
 - `planned`: runnable when dependencies are done
-- `in-progress`: currently selected by Ralph
+- `in-progress`: selected by Ralph and skipped by later runs until reset
 - `done`: complete and archiveable
 - `blocked`: not runnable; requires `blocked_reason`
 - `skipped`: intentionally excluded
@@ -71,72 +138,91 @@ Supported statuses:
 Dependencies are comma-separated plan basenames or paths relative to the plan directory:
 
 ```md
-dependencies: setup-auth.plan.md, api/create-user.plan.md
+dependencies: 01-add-health-endpoint.plan.md, tests/02-add-smoke-test.plan.md
 ```
 
 Only `done` satisfies a dependency.
 
+## Example Plans
+
+This repository includes a small sample queue in [examples/doc-plan](examples/doc-plan). Use it as a template:
+
+```bash
+cp -R examples/doc-plan ~/plans/my-project
+```
+
+The sample queue contains:
+
+- `01-add-health-endpoint.plan.md`: an independent implementation plan
+- `02-add-smoke-test.plan.md`: a dependent follow-up plan
+
+Edit the examples before running them against a real repository.
+
 ## Common Commands
 
-Dry-run queue health:
+Preview queue health:
 
 ```bash
-ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plans /home/jiyu/Documents/Jiyu-obsidian/demo-aidesk/plan \
-  --dry-run
+ralph --repo ~/work/my-project --plans ~/plans/my-project --dry-run
 ```
 
-Drain the whole queue:
+Run the next runnable plan only:
 
 ```bash
-ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plans /home/jiyu/Documents/Jiyu-obsidian/demo-aidesk/plan
+ralph --repo ~/work/my-project --plans ~/plans/my-project --once
 ```
 
-Run only one plan:
+Run all runnable plans:
 
 ```bash
-ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plans /home/jiyu/Documents/Jiyu-obsidian/demo-aidesk/plan \
-  --once
+ralph --repo ~/work/my-project --plans ~/plans/my-project
 ```
 
 Run one selected queue item:
 
 ```bash
 ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plans /home/jiyu/Documents/Jiyu-obsidian/demo-aidesk/plan \
-  --item add-login.plan.md
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --item 01-add-health-endpoint.plan.md
 ```
 
-Run explicit plan files:
+Run explicit plan files instead of a queue directory:
 
 ```bash
 ralph \
-  --repo ~/github/demo-projects/opsdesk-ai \
-  --plan /tmp/plans/one.plan.md \
-  --plan /tmp/plans/two.plan.md
+  --repo ~/work/my-project \
+  --plan ~/plans/my-project/01-add-health-endpoint.plan.md \
+  --plan ~/plans/my-project/02-add-smoke-test.plan.md
 ```
 
-## Codex Model And Reasoning
-
-Codex is the first supported provider.
-
-Use an exact model:
+Skip the simplify pass:
 
 ```bash
-ralph --repo ~/project --plans ~/plans --model gpt-5.4
+ralph --repo ~/work/my-project --plans ~/plans/my-project --no-simplify
 ```
 
-Use Codex reasoning effort directly:
+Fail when the target repo has uncommitted changes:
 
 ```bash
-ralph --repo ~/project --plans ~/plans --codex-level medium
-ralph --repo ~/project --plans ~/plans --codex-level high
+ralph --repo ~/work/my-project --plans ~/plans/my-project --fail-on-dirty
+```
+
+## Provider Options
+
+Codex is the supported provider in this version.
+
+Use a specific model:
+
+```bash
+ralph --repo ~/work/my-project --plans ~/plans/my-project --model <model-name>
+```
+
+Use Codex reasoning effort:
+
+```bash
+ralph --repo ~/work/my-project --plans ~/plans/my-project --codex-level medium
+ralph --repo ~/work/my-project --plans ~/plans/my-project --codex-level high
 ```
 
 `--codex-level` accepts:
@@ -146,80 +232,50 @@ ralph --repo ~/project --plans ~/plans --codex-level high
 - `high`
 - `xhigh`
 
-Ralph passes this to Codex as `model_reasoning_effort`.
-
-You can combine model and reasoning:
+Use model tiers through environment variables:
 
 ```bash
-ralph \
-  --repo ~/project \
-  --plans ~/plans \
-  --model gpt-5.4 \
-  --codex-level high
+export RALPH_MODEL_MEDIUM=<medium-model-name>
+export RALPH_MODEL_HIGH=<high-model-name>
+
+ralph --repo ~/work/my-project --plans ~/plans/my-project --model-tier medium
+ralph --repo ~/work/my-project --plans ~/plans/my-project --model-tier high --codex-level high
 ```
 
-You can also use model tiers through environment variables:
+Override the provider binary:
 
 ```bash
-export RALPH_MODEL_MEDIUM=gpt-5.4
-export RALPH_MODEL_HIGH=gpt-5.5
-
-ralph --repo ~/project --plans ~/plans --model-tier medium
-ralph --repo ~/project --plans ~/plans --model-tier high --codex-level high
+RALPH_CODEX_BIN=/path/to/codex ralph --repo ~/work/my-project --plans ~/plans/my-project
+ralph --repo ~/work/my-project --plans ~/plans/my-project --agent-bin /path/to/codex
 ```
 
-Provider binary overrides:
+## Safety Notes
 
-```bash
-RALPH_CODEX_BIN=/path/to/codex ralph --repo ~/project --plans ~/plans
-ralph --repo ~/project --plans ~/plans --agent-bin /path/to/codex
-```
-
-## Safety Behavior
-
-Ralph itself only mutates plan metadata, archives completed plans, and writes the summary file. The provider agent is responsible for target repo edits.
-
-For Codex, Ralph always runs in YOLO mode with:
+Ralph runs Codex with:
 
 ```text
 --dangerously-bypass-approvals-and-sandbox
 ```
 
-That keeps the queue unattended: Codex can run commands and edit files without stopping for approval prompts.
+That allows unattended queue execution. Use Ralph only with plan files and repositories you trust.
 
-If the target repo is dirty, Ralph warns and continues:
+If the target repo has uncommitted changes, Ralph warns and continues by default. The agent is instructed to preserve unrelated changes. Add `--fail-on-dirty` when you want automation to stop instead.
 
-```bash
-ralph --repo ~/project --plans ~/plans
-```
-
-For automation, fail instead:
-
-```bash
-ralph --repo ~/project --plans ~/plans --fail-on-dirty
-```
-
-The implementation agent must finish with:
+The implementation agent must end with exactly one of:
 
 ```text
-ralph-result: done | <one sentence>
+ralph-result: done | <one sentence summary>
+ralph-result: blocked | <one sentence blocker reason>
 ```
 
-or:
+The simplify pass must end with exactly one of:
 
 ```text
-ralph-result: blocked | <one sentence>
+ralph-simplify-result: done | <one sentence summary>
+ralph-simplify-result: failed | <one sentence reason>
 ```
 
-Ralph owns final plan metadata transitions. If the provider exits successfully but omits the result line, Ralph leaves the plan `in-progress`, writes a summary failure, and exits non-zero.
-
-The simplify pass runs after successful implementation unless disabled:
-
-```bash
-ralph --repo ~/project --plans ~/plans --no-simplify
-```
-
-If simplify fails, Ralph still archives the completed implementation plan, records the simplify failure in the summary, and exits non-zero.
+If a provider exits successfully but omits the required result line, Ralph leaves the plan `in-progress`, writes a summary failure, and exits non-zero.
 
 ## Retry Provider Limits
 
@@ -227,8 +283,8 @@ Retries are off by default. Enable retries for likely provider limit failures:
 
 ```bash
 ralph \
-  --repo ~/project \
-  --plans ~/plans \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
   --retry-on-limit \
   --retry-delay-minutes 10 \
   --retry-max-attempts 4
@@ -240,6 +296,14 @@ Equivalent environment variables:
 export RALPH_RETRY_ON_LIMIT=true
 export RALPH_RETRY_DELAY_MINUTES=10
 export RALPH_RETRY_MAX_ATTEMPTS=4
+```
+
+## Install From A Packed Tarball
+
+```bash
+pnpm build
+npm pack
+npm install -g ./ralph-loop-cli-0.1.0.tgz
 ```
 
 ## Development

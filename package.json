@@ -1,13 +1,15 @@
 {
   "name": "ralph-loop-cli",
   "version": "0.1.0",
-  "description": "Global Ralph plan queue runner for implementation agents.",
+  "description": "Doc-plan queue runner for implementation agents.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "ralph": "./dist/cli.js"
   },
   "files": [
     "dist",
+    "examples",
     "README.md"
   ],
   "scripts": {
