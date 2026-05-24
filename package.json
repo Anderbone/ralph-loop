@@ -4,6 +4,21 @@
   "description": "Doc-plan queue runner for implementation agents.",
   "license": "MIT",
   "type": "module",
+  "homepage": "https://anderbone.github.io/ralph-loop/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anderbone/ralph-loop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Anderbone/ralph-loop/issues"
+  },
+  "keywords": [
+    "codex",
+    "cli",
+    "automation",
+    "agents",
+    "doc-plan"
+  ],
   "bin": {
     "ralph": "./dist/cli.js"
   },

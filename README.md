@@ -1,110 +1,129 @@
 # Ralph
 
-Ralph is a command-line runner for doc-plan queues. Point it at a target repository and a folder of `*.plan.md` files, and Ralph will run an implementation agent through the runnable plans one by one.
+Ralph is a small TypeScript CLI that runs a folder of implementation plans through Codex one item at a time.
 
-It is intentionally narrow:
+It is useful when you already have a queue of `*.plan.md` files and want an unattended agent loop that can:
 
-- It runs doc-plan files only.
-- It does not generate plans for you.
-- It does not use project-specific harnesses, backlog files, or private conventions.
-- Ralph only edits plan metadata, archives completed plans, and writes a run summary. The agent edits the target repo.
+- pick the next runnable plan
+- respect simple dependencies between plans
+- mark plans `in-progress`, `done`, or `blocked`
+- archive completed plans into `done/`
+- write a Markdown run summary
+- run a follow-up simplify/review pass after each completed plan
 
-## Quick Start
+Ralph is intentionally narrow. It does not write plans for you, manage a backlog, or hide what the agent is doing. It only coordinates doc-plan execution and keeps queue files tidy.
 
-Requirements:
+## Who This Is For
+
+Use Ralph if you:
+
+- keep implementation work in Markdown plan files
+- use Codex from the command line
+- want to drain a small, trusted queue without manually starting each task
+- care about preserving simple audit history in plain files
+
+Do not use Ralph as a general CI runner, job scheduler, or task database. It is a local automation loop for trusted repositories and trusted plans.
+
+## Requirements
 
 - Node.js 20 or newer
 - pnpm
+- Git
 - A working `codex` CLI on your `PATH`
-- A target repository you want the agent to work on
+- A target repository that the agent is allowed to edit
 
-Install Ralph from this repository:
+Ralph runs Codex with `--dangerously-bypass-approvals-and-sandbox` so it can operate unattended. Only run queues and repositories you trust.
+
+## Install
+
+From a checkout:
 
 ```bash
+git clone https://github.com/Anderbone/ralph-loop.git
+cd ralph-loop
 pnpm install
 pnpm build
 pnpm link --global
 ```
 
-Check that the command is available:
+Or install directly from GitHub:
+
+```bash
+pnpm add --global github:Anderbone/ralph-loop
+```
+
+Check the binary:
 
 ```bash
 ralph --help
 ```
 
-Create or copy a doc-plan queue:
+## Five-Minute Demo
+
+Copy the example queue somewhere outside this repository:
 
 ```bash
-mkdir -p ~/plans/my-project
-cp examples/doc-plan/*.plan.md ~/plans/my-project/
+mkdir -p ~/plans
+cp -R examples/doc-plan ~/plans/ralph-demo
 ```
 
-Edit the copied plan files so they describe work for your target repository.
-
-Preview the queue without changing files:
+Preview queue health before mutating anything:
 
 ```bash
 ralph \
   --repo ~/work/my-project \
-  --plans ~/plans/my-project \
+  --plans ~/plans/ralph-demo \
   --dry-run
 ```
 
-Run one plan:
+Expected shape:
+
+```text
+# Ralph Queue Health
+
+Runnable: 1
+Waiting: 2
+Blocked: 0
+Skipped: 0
+Done: 0
+Warnings: 0
+Failures: 0
+
+## Runnable
+- 01-add-health-endpoint.plan.md
+
+## Waiting
+- 02-add-smoke-test.plan.md
+- 03-document-health-check.plan.md
+```
+
+Run the next item only:
 
 ```bash
 ralph \
   --repo ~/work/my-project \
-  --plans ~/plans/my-project \
+  --plans ~/plans/ralph-demo \
   --once
 ```
 
-Drain all runnable plans:
+Drain every runnable item:
 
 ```bash
 ralph \
   --repo ~/work/my-project \
-  --plans ~/plans/my-project
+  --plans ~/plans/ralph-demo
 ```
 
-Ralph writes a summary to:
+After a successful run, Ralph writes:
 
 ```text
-<plans>/ralph-summary.md
+~/plans/ralph-demo/ralph-summary.md
+~/plans/ralph-demo/done/<completed-plan>.plan.md
 ```
-
-Completed plans are moved to:
-
-```text
-<plans>/done/
-```
-
-## How It Works
-
-Ralph expects a folder of active plan files. Active plans must be direct children of the folder passed to `--plans`.
-
-Supported active filenames:
-
-- `*.plan.md`
-- `*-plan.md`
-
-Ralph does not recursively scan arbitrary subfolders. The only managed subfolder is `done/`, where completed plans are archived.
-
-On each run, Ralph:
-
-1. Reads active plans from `--plans`.
-2. Reads completed plans from `<plans>/done/` for dependency resolution.
-3. Selects the first runnable plan alphabetically, unless `--item` selects a specific one.
-4. Marks the selected plan `in-progress`.
-5. Runs the provider agent from the target repo.
-6. Requires the agent to finish with a `ralph-result:` line.
-7. Marks the plan `done` or `blocked`.
-8. Runs a simplify/review pass unless `--no-simplify` is set.
-9. Archives completed plans and updates the summary.
 
 ## Plan File Format
 
-Each plan starts with metadata, followed by a blank line and the plan body:
+Each active plan is a Markdown file with metadata at the top, followed by a blank line and the plan body:
 
 ```md
 status: planned
@@ -138,25 +157,33 @@ Supported statuses:
 Dependencies are comma-separated plan basenames or paths relative to the plan directory:
 
 ```md
-dependencies: 01-add-health-endpoint.plan.md, tests/02-add-smoke-test.plan.md
+dependencies: 01-add-health-endpoint.plan.md, 02-add-smoke-test.plan.md
 ```
 
 Only `done` satisfies a dependency.
 
-## Example Plans
+## Queue Rules
 
-This repository includes a small sample queue in [examples/doc-plan](examples/doc-plan). Use it as a template:
+Ralph expects active plans to be direct children of the folder passed to `--plans`.
 
-```bash
-cp -R examples/doc-plan ~/plans/my-project
-```
+Supported active filenames:
 
-The sample queue contains:
+- `*.plan.md`
+- `*-plan.md`
 
-- `01-add-health-endpoint.plan.md`: an independent implementation plan
-- `02-add-smoke-test.plan.md`: a dependent follow-up plan
+Ralph does not recursively scan arbitrary subfolders. The only managed subfolder is `done/`, where completed plans are archived.
 
-Edit the examples before running them against a real repository.
+On each run, Ralph:
+
+1. Reads active plans from `--plans`.
+2. Reads completed plans from `<plans>/done/` for dependency resolution.
+3. Selects the first runnable plan alphabetically, unless `--item` selects a specific one.
+4. Marks the selected plan `in-progress`.
+5. Runs the provider agent from the target repo.
+6. Requires the agent to finish with a `ralph-result:` line.
+7. Marks the plan `done` or `blocked`.
+8. Runs a simplify/review pass unless `--no-simplify` is set.
+9. Archives completed plans and updates the summary.
 
 ## Common Commands
 
@@ -164,18 +191,6 @@ Preview queue health:
 
 ```bash
 ralph --repo ~/work/my-project --plans ~/plans/my-project --dry-run
-```
-
-Run the next runnable plan only:
-
-```bash
-ralph --repo ~/work/my-project --plans ~/plans/my-project --once
-```
-
-Run all runnable plans:
-
-```bash
-ralph --repo ~/work/my-project --plans ~/plans/my-project
 ```
 
 Run one selected queue item:
@@ -208,6 +223,23 @@ Fail when the target repo has uncommitted changes:
 ralph --repo ~/work/my-project --plans ~/plans/my-project --fail-on-dirty
 ```
 
+Stop after a fixed number of items:
+
+```bash
+ralph --repo ~/work/my-project --plans ~/plans/my-project --max-items 3
+```
+
+Retry likely provider rate-limit failures:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --retry-on-limit \
+  --retry-delay-minutes 10 \
+  --retry-max-attempts 4
+```
+
 ## Provider Options
 
 Codex is the supported provider in this version.
@@ -232,7 +264,7 @@ ralph --repo ~/work/my-project --plans ~/plans/my-project --codex-level high
 - `high`
 - `xhigh`
 
-Use model tiers through environment variables:
+Resolve models from environment variables:
 
 ```bash
 export RALPH_MODEL_MEDIUM=<medium-model-name>
@@ -249,68 +281,56 @@ RALPH_CODEX_BIN=/path/to/codex ralph --repo ~/work/my-project --plans ~/plans/my
 ralph --repo ~/work/my-project --plans ~/plans/my-project --agent-bin /path/to/codex
 ```
 
-## Safety Notes
+## Example Plans
 
-Ralph runs Codex with:
+The sample queue in [examples/doc-plan](examples/doc-plan) shows a three-step flow:
 
-```text
---dangerously-bypass-approvals-and-sandbox
-```
+- `01-add-health-endpoint.plan.md`: independent implementation work
+- `02-add-smoke-test.plan.md`: waits for the health endpoint
+- `03-document-health-check.plan.md`: waits for the smoke test
 
-That allows unattended queue execution. Use Ralph only with plan files and repositories you trust.
-
-If the target repo has uncommitted changes, Ralph warns and continues by default. The agent is instructed to preserve unrelated changes. Add `--fail-on-dirty` when you want automation to stop instead.
-
-The implementation agent must end with exactly one of:
-
-```text
-ralph-result: done | <one sentence summary>
-ralph-result: blocked | <one sentence blocker reason>
-```
-
-The simplify pass must end with exactly one of:
-
-```text
-ralph-simplify-result: done | <one sentence summary>
-ralph-simplify-result: failed | <one sentence reason>
-```
-
-If a provider exits successfully but omits the required result line, Ralph leaves the plan `in-progress`, writes a summary failure, and exits non-zero.
-
-## Retry Provider Limits
-
-Retries are off by default. Enable retries for likely provider limit failures:
-
-```bash
-ralph \
-  --repo ~/work/my-project \
-  --plans ~/plans/my-project \
-  --retry-on-limit \
-  --retry-delay-minutes 10 \
-  --retry-max-attempts 4
-```
-
-Equivalent environment variables:
-
-```bash
-export RALPH_RETRY_ON_LIMIT=true
-export RALPH_RETRY_DELAY_MINUTES=10
-export RALPH_RETRY_MAX_ATTEMPTS=4
-```
-
-## Install From A Packed Tarball
-
-```bash
-pnpm build
-npm pack
-npm install -g ./ralph-loop-cli-0.1.0.tgz
-```
+Use these as templates, then rewrite the goals and acceptance criteria for your target repository.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm run typecheck
-pnpm run test:ci
-pnpm run build
+pnpm typecheck
+pnpm test
+pnpm build
+node dist/cli.js --help
 ```
+
+Source files live in `src/` and compile to `dist/`, which is included in the package. Tests live in `tests/` and use Vitest.
+
+## Static Site
+
+This repository includes a small GitHub Pages-ready landing page at [docs/index.html](docs/index.html).
+
+To serve it locally:
+
+```bash
+python3 -m http.server 8000 -d docs
+```
+
+Then open `http://localhost:8000`.
+
+## Safety Notes
+
+Ralph passes this flag to Codex:
+
+```text
+--dangerously-bypass-approvals-and-sandbox
+```
+
+That is the point of the tool: unattended execution of trusted plan queues. Keep these guardrails in place:
+
+- preview queues with `--dry-run`
+- keep plans small and reviewable
+- use `--once` for a new queue until you trust it
+- use `--fail-on-dirty` when you want a clean target repo requirement
+- read `ralph-summary.md` after runs
+
+## License
+
+MIT
