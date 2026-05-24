@@ -162,6 +162,167 @@ dependencies: 01-add-health-endpoint.plan.md, 02-add-smoke-test.plan.md
 
 Only `done` satisfies a dependency.
 
+## Writing Plans
+
+Ralph executes plans, but it does not need to be the tool that writes them. A good Ralph plan is a small implementation brief that another coding agent can execute without asking obvious follow-up questions.
+
+This repository includes two authoring helpers:
+
+- [examples/templates/implementation-plan.template.md](examples/templates/implementation-plan.template.md): a copyable Ralph plan template
+- [examples/skills/implementation-plan/SKILL.md](examples/skills/implementation-plan/SKILL.md): an optional Codex skill for creating Ralph-ready plans
+
+The recommended plan body structure is:
+
+```md
+# <Feature> Plan
+
+## Open Questions
+
+## Goal
+
+## Current State
+
+## Scope
+
+## Non-Goals
+
+## Implementation Tasks
+
+## Guardrails
+
+## Verification
+```
+
+Use `## Open Questions` for decisions a human really needs to make before Ralph runs the plan. If there are no unresolved decisions, write `- None.`.
+
+Use `## Implementation Tasks` for concrete, codeable steps. Name likely files, modules, routes, tests, commands, and documentation when you know them. Keep each plan narrow enough for one Ralph run.
+
+### Complete Plan Example
+
+Save this as `~/plans/my-project/01-add-health-endpoint.plan.md`:
+
+```md
+status: planned
+created_at: 2026-05-21T12:00:00.000Z
+updated_at: 2026-05-21T12:00:00.000Z
+done_at: none
+independent: yes
+dependencies: none
+
+# Add Health Endpoint Plan
+
+## Open Questions
+
+- None.
+
+## Goal
+
+Add a small health endpoint that confirms the application process is running.
+
+## Current State
+
+The target repository already has an HTTP server and test setup. Follow its existing routing, response, and test conventions instead of introducing a new framework.
+
+## Scope
+
+- Add `GET /health` or the closest equivalent route for the existing server framework.
+- Return a successful status code and a compact JSON body such as `{ "ok": true }`.
+- Add or update a focused route test when the repository already has route tests.
+
+## Non-Goals
+
+- Do not add authentication, readiness checks, database checks, or external service checks.
+- Do not reorganize the server structure beyond what is required for the endpoint.
+
+## Implementation Tasks
+
+1. Read the target repository instructions and inspect the server entry point, router setup, and nearest route tests.
+2. Add the health route using the existing routing style.
+3. Add or update the smallest matching test for the route.
+4. Update existing developer documentation only if the repository already documents available endpoints.
+
+## Guardrails
+
+- Preserve unrelated user changes.
+- Keep the endpoint simple and deterministic.
+- Follow existing code style, module boundaries, and test patterns.
+
+## Verification
+
+- Run the relevant route test or the target repository's normal test command.
+- If there is no automated test setup, run the smallest manual smoke check and report the command in the final result.
+```
+
+### Daily Workflow
+
+Start with a queue folder outside the repository Ralph will edit:
+
+```bash
+mkdir -p ~/plans/my-project
+cp examples/templates/implementation-plan.template.md ~/plans/my-project/01-my-change.plan.md
+```
+
+Write the plan yourself, or ask Codex to write one from the skill:
+
+```text
+Use the implementation-plan skill to create ~/plans/my-project/01-add-health-endpoint.plan.md for adding a health endpoint to ~/work/my-project. Inspect the repo first and make the plan Ralph-ready. Do not implement it.
+```
+
+If your Codex setup supports local skills, you can install the included Ralph plan skill:
+
+```bash
+mkdir -p ~/.agents/skills/implementation-plan
+cp examples/skills/implementation-plan/SKILL.md ~/.agents/skills/implementation-plan/SKILL.md
+```
+
+Preview the queue before anything mutates:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --dry-run
+```
+
+Run the first plan only:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project \
+  --once
+```
+
+Review the target repository changes and the generated summary:
+
+```bash
+cd ~/work/my-project
+git status --short
+git diff
+sed -n '1,200p' ~/plans/my-project/ralph-summary.md
+```
+
+When the first run looks good, continue draining the queue:
+
+```bash
+ralph \
+  --repo ~/work/my-project \
+  --plans ~/plans/my-project
+```
+
+For a dependent follow-up plan, set `independent: no` and name the dependency:
+
+```md
+status: planned
+created_at: 2026-05-21T12:05:00.000Z
+updated_at: 2026-05-21T12:05:00.000Z
+done_at: none
+independent: no
+dependencies: 01-add-health-endpoint.plan.md
+```
+
+Ralph will wait until the dependency is marked `done` and archived into `done/`.
+
 ## Queue Rules
 
 Ralph expects active plans to be direct children of the folder passed to `--plans`.

@@ -13,4 +13,6 @@ ralph --repo ~/work/my-project --plans ~/plans/my-project --dry-run
 
 Edit the copied `*.plan.md` files before running them. The examples intentionally use generic web-application language, so they should be treated as templates rather than ready-to-run instructions.
 
+For new queues, start from the authoring template in `../templates/implementation-plan.template.md` or use the optional Codex skill in `../skills/implementation-plan/SKILL.md` to generate Ralph-ready plans.
+
 Ralph treats direct `*.plan.md` and `*-plan.md` children as active queue items. Completed plans are moved into `done/`.
